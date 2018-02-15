@@ -1,4 +1,3 @@
-import os
 import os.path as osp
 import gym
 import time
@@ -11,19 +10,22 @@ from baselines import logger
 from baselines.common import set_global_seeds, explained_variance
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 from baselines.common.atari_wrappers import wrap_deepmind
-from baselines.common import tf_util
 
 from baselines.a2c.utils import discount_with_dones
 from baselines.a2c.utils import Scheduler, make_path, find_trainable_variables
+from baselines.a2c.policies import CnnPolicy
 from baselines.a2c.utils import cat_entropy, mse
 
 class Model(object):
 
-    def __init__(self, policy, ob_space, ac_space, nenvs, nsteps,
+    def __init__(self, policy, ob_space, ac_space, nenvs, nsteps, nstack, num_procs,
             ent_coef=0.01, vf_coef=0.5, max_grad_norm=0.5, lr=7e-4,
             alpha=0.99, epsilon=1e-5, total_timesteps=int(80e6), lrschedule='linear'):
-
-        sess = tf_util.make_session()
+        config = tf.ConfigProto(allow_soft_placement=True,
+                                intra_op_parallelism_threads=num_procs,
+                                inter_op_parallelism_threads=num_procs)
+        config.gpu_options.allow_growth = True
+        sess = tf.Session(config=config)
         nact = ac_space.n
         nbatch = nenvs*nsteps
 
@@ -32,8 +34,8 @@ class Model(object):
         R = tf.placeholder(tf.float32, [nbatch])
         LR = tf.placeholder(tf.float32, [])
 
-        step_model = policy(sess, ob_space, ac_space, nenvs, 1, reuse=False)
-        train_model = policy(sess, ob_space, ac_space, nenvs*nsteps, nsteps, reuse=True)
+        step_model = policy(sess, ob_space, ac_space, nenvs, 1, nstack, reuse=False)
+        train_model = policy(sess, ob_space, ac_space, nenvs, nsteps, nstack, reuse=True)
 
         neglogpac = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=train_model.pi, labels=A)
         pg_loss = tf.reduce_mean(ADV * neglogpac)
@@ -56,7 +58,7 @@ class Model(object):
             for step in range(len(obs)):
                 cur_lr = lr.value()
             td_map = {train_model.X:obs, A:actions, ADV:advs, R:rewards, LR:cur_lr}
-            if states is not None:
+            if states != []:
                 td_map[train_model.S] = states
                 td_map[train_model.M] = masks
             policy_loss, value_loss, policy_entropy, _ = sess.run(
@@ -67,8 +69,9 @@ class Model(object):
 
         def save(save_path):
             ps = sess.run(params)
-            make_path(save_path)
-            joblib.dump(ps, save_path)
+            folder = "models/"
+            make_path(folder)
+            joblib.dump(ps, folder + save_path)
 
         def load(load_path):
             loaded_params = joblib.load(load_path)
@@ -89,25 +92,32 @@ class Model(object):
 
 class Runner(object):
 
-    def __init__(self, env, model, nsteps=5, gamma=0.99):
+    def __init__(self, env, model, nsteps=5, nstack=4, gamma=0.99, render=False):
         self.env = env
         self.model = model
         nh, nw, nc = env.observation_space.shape
         nenv = env.num_envs
-        self.batch_ob_shape = (nenv*nsteps, nh, nw, nc)
-        self.obs = np.zeros((nenv, nh, nw, nc), dtype=np.uint8)
+        self.batch_ob_shape = (nenv*nsteps, nh, nw, nc*nstack)
+        self.obs = np.zeros((nenv, nh, nw, nc*nstack), dtype=np.uint8)
         self.nc = nc
         obs = env.reset()
+        self.update_obs(obs)
         self.gamma = gamma
         self.nsteps = nsteps
         self.states = model.initial_state
         self.dones = [False for _ in range(nenv)]
 
+    def update_obs(self, obs):
+        # Do frame-stacking here instead of the FrameStack wrapper to reduce
+        # IPC overhead
+        self.obs = np.roll(self.obs, shift=-self.nc, axis=3)
+        self.obs[:, :, :, -self.nc:] = obs
+
     def run(self):
         mb_obs, mb_rewards, mb_actions, mb_values, mb_dones = [],[],[],[],[]
         mb_states = self.states
         for n in range(self.nsteps):
-            actions, values, states, _ = self.model.step(self.obs, self.states, self.dones)
+            actions, values, states = self.model.step(self.obs, self.states, self.dones)
             mb_obs.append(np.copy(self.obs))
             mb_actions.append(actions)
             mb_values.append(values)
@@ -118,7 +128,7 @@ class Runner(object):
             for n, done in enumerate(dones):
                 if done:
                     self.obs[n] = self.obs[n]*0
-            self.obs = obs
+            self.update_obs(obs)
             mb_rewards.append(rewards)
         mb_dones.append(self.dones)
         #batch of steps to batch of rollouts
@@ -145,16 +155,17 @@ class Runner(object):
         mb_masks = mb_masks.flatten()
         return mb_obs, mb_states, mb_rewards, mb_masks, mb_actions, mb_values
 
-def learn(policy, env, seed, nsteps=5, total_timesteps=int(80e6), vf_coef=0.5, ent_coef=0.01, max_grad_norm=0.5, lr=7e-4, lrschedule='linear', epsilon=1e-5, alpha=0.99, gamma=0.99, log_interval=100):
+def learn(policy, policy_name, env, seed, nsteps=5, nstack=4, total_timesteps=int(80e6), vf_coef=0.5, ent_coef=0.01, max_grad_norm=0.5, lr=7e-4, lrschedule='linear', epsilon=1e-5, alpha=0.99, gamma=0.99, log_interval=100, save_interval=25000):
     tf.reset_default_graph()
     set_global_seeds(seed)
 
     nenvs = env.num_envs
     ob_space = env.observation_space
     ac_space = env.action_space
-    model = Model(policy=policy, ob_space=ob_space, ac_space=ac_space, nenvs=nenvs, nsteps=nsteps, ent_coef=ent_coef, vf_coef=vf_coef,
+    num_procs = len(env.remotes) # HACK
+    model = Model(policy=policy, ob_space=ob_space, ac_space=ac_space, nenvs=nenvs, nsteps=nsteps, nstack=nstack, num_procs=num_procs, ent_coef=ent_coef, vf_coef=vf_coef,
         max_grad_norm=max_grad_norm, lr=lr, alpha=alpha, epsilon=epsilon, total_timesteps=total_timesteps, lrschedule=lrschedule)
-    runner = Runner(env, model, nsteps=nsteps, gamma=gamma)
+    runner = Runner(env, model, nsteps=nsteps, nstack=nstack, gamma=gamma)
 
     nbatch = nenvs*nsteps
     tstart = time.time()
@@ -172,4 +183,24 @@ def learn(policy, env, seed, nsteps=5, total_timesteps=int(80e6), vf_coef=0.5, e
             logger.record_tabular("value_loss", float(value_loss))
             logger.record_tabular("explained_variance", float(ev))
             logger.dump_tabular()
+        if update % save_interval == 0 or update == 1:
+            model.save("./atari_a2c_" + policy_name + ".pkl")
     env.close()
+
+def enjoy(policy, policy_name, env, seed, nsteps=5, nstack=4, total_timesteps=1000):
+    tf.reset_default_graph()
+    set_global_seeds(seed)
+
+    nenvs = env.num_envs
+    ob_space = env.observation_space
+    ac_space = env.action_space
+    model = Model(policy=policy, ob_space=ob_space, ac_space=ac_space, nenvs=nenvs, nsteps=nsteps, nstack=nstack,
+                  num_procs=1)
+    model.load('models/atari_a2c_' + policy_name + '.pkl')
+    runner = Runner(env, model, nsteps=nsteps, nstack=nstack, gamma=0)
+
+    for update in range(1, total_timesteps):
+        runner.run()
+
+if __name__ == '__main__':
+    main()

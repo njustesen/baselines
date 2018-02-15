@@ -1,0 +1,19 @@
+Logging to ~/Documents/log/
+---------------------------------
+| decoded_loss       | 0.0289   |
+| explained_variance | -1.12    |
+| fps                | 34       |
+| nupdates           | 1        |
+| policy_entropy     | 1.39     |
+| total_timesteps    | 80       |
+| value_loss         | 0.000113 |
+---------------------------------
+---------------------------------
+| decoded_loss       | 0.0391   |
+| explained_variance | 0.0262   |
+| fps                | 45       |
+| nupdates           | 100      |
+| policy_entropy     | 1.39     |
+| total_timesteps    | 8000     |
+| value_loss         | 0.0239   |
+---------------------------------

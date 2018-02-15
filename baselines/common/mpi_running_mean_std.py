@@ -57,7 +57,7 @@ def test_runningmeanstd():
         rms.update(x1)
         rms.update(x2)
         rms.update(x3)
-        ms2 = [rms.mean.eval(), rms.std.eval()]
+        ms2 = U.eval([rms.mean, rms.std])
 
         assert np.allclose(ms1, ms2)
 
@@ -94,11 +94,11 @@ def test_dist():
 
     assert checkallclose(
         bigvec.mean(axis=0),
-        rms.mean.eval(),
+        U.eval(rms.mean)
     )
     assert checkallclose(
         bigvec.std(axis=0),
-        rms.std.eval(),
+        U.eval(rms.std)
     )
 
 
