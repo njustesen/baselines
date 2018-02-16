@@ -69,10 +69,10 @@ def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--env', help='environment ID', default='BreakoutNoFrameskip-v4')
     parser.add_argument('--seed', help='RNG seed', type=int, default=0)
-    parser.add_argument('--policy', help='Policy architecture', choices=['cnn', 'lstm', 'lnlstm', 'autoencoder'], default='cnn')
+    parser.add_argument('--policy', help='Policy architecture', choices=['cnn', 'lstm', 'lnlstm', 'autoencoder'], default='autoencoder')
     parser.add_argument('--lrschedule', help='Learning rate schedule', choices=['constant', 'linear'], default='constant')
     parser.add_argument('--num-timesteps', type=int, default=int(10e6))
-    parser.add_argument('--show', dest='show', action='store_true', default=True)
+    parser.add_argument('--show', dest='show', action='store_true', default=False)
     args = parser.parse_args()
     if args.show:
         show(args.env, num_timesteps=args.num_timesteps, seed=args.seed, policy=args.policy)

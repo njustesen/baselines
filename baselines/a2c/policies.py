@@ -130,12 +130,11 @@ class AutoencoderPolicy(object):
         with tf.variable_scope("model", reuse=reuse):
             input = tf.cast(X, tf.float32)/255.
 
-            # TODO: Same as CNN?
-            enc1conv = tf.layers.conv2d(inputs=input, filters=16, kernel_size=[3, 3], padding="SAME", use_bias = True, activation=tf.nn.leaky_relu)
-            enc2pool = tf.layers.max_pooling2d(inputs=enc1conv, pool_size=[3, 3], strides=3)
+            enc1conv = tf.layers.conv2d(inputs=input, filters=32, kernel_size=[3, 3], padding="SAME", use_bias = True, activation=tf.nn.leaky_relu)
+            enc2pool = tf.layers.max_pooling2d(inputs=enc1conv, pool_size=[2, 2], strides=2)
             enc2conv = tf.layers.conv2d(inputs=enc2pool, filters=16, kernel_size=[3, 3], padding="SAME", use_bias = True, activation=tf.nn.leaky_relu)
-            enc3pool = tf.layers.max_pooling2d(inputs=enc2conv, pool_size=[3, 3], strides=3)
-            enc3conv = tf.layers.conv2d(inputs=enc3pool, filters=16, kernel_size=[3, 3], padding="SAME", use_bias = True, activation=tf.nn.leaky_relu)
+            enc3pool = tf.layers.max_pooling2d(inputs=enc2conv, pool_size=[2, 2], strides=2)
+            enc3conv = tf.layers.conv2d(inputs=enc3pool, filters=8, kernel_size=[3, 3], padding="SAME", use_bias = True, activation=tf.nn.leaky_relu)
             enc_pool = tf.layers.max_pooling2d(inputs=enc3conv, pool_size=[3, 3], strides=3, name="enc_pool")
 
             enc_fc = conv_to_fc(enc_pool)
@@ -145,13 +144,15 @@ class AutoencoderPolicy(object):
             pi = fc(h, 'pi', nact, act=lambda x:x)
             vf = fc(h, 'v', 1, act=lambda x:x)
 
+            # Checkpoint 3
+
             # Decoder
-            dec1conv = tf.layers.conv2d(enc_pool, filters=16, kernel_size=(3, 3), strides=(1, 1), name='dec1conv', padding='SAME', use_bias=True, activation=tf.nn.leaky_relu)
-            dec2up = tf.layers.conv2d_transpose(dec1conv, filters=16, kernel_size=3, padding='same', strides=3, name='dec2up')
-            dec3conv = tf.layers.conv2d(dec2up, filters=16, kernel_size=(3, 3), strides=(1, 1), name='dec3conv', padding='SAME', use_bias=True, activation=tf.nn.leaky_relu)
-            dec4up = tf.layers.conv2d_transpose(dec3conv, filters=16, kernel_size=3, padding='same', strides=2, name='dec4up')
-            dec5conv = tf.layers.conv2d(dec4up, filters=16, kernel_size=(3, 3), strides=(1, 1), name='dec5conv', padding='SAME', use_bias=True, activation=tf.nn.leaky_relu)
-            dec6up = tf.layers.conv2d_transpose(dec5conv, filters=16, kernel_size=3, padding='same', strides=2, name='dec6up')
+            dec1conv = tf.layers.conv2d(enc_pool, filters=8, kernel_size=(3, 3), strides=1, name='dec1conv', padding='SAME', use_bias=True, activation=tf.nn.leaky_relu)
+            dec2up = tf.layers.conv2d_transpose(dec1conv, filters=8, kernel_size=3, strides=3, padding='same', name='dec2up')
+            dec3conv = tf.layers.conv2d(dec2up, filters=16, kernel_size=(3, 3), strides=1, name='dec3conv', padding='SAME', use_bias=True, activation=tf.nn.leaky_relu)
+            dec4up = tf.layers.conv2d_transpose(dec3conv, filters=16, kernel_size=2, strides=2, padding='same', name='dec4up')
+            dec5conv = tf.layers.conv2d(dec4up, filters=32, kernel_size=(3, 3), strides=1, name='dec5conv', padding='SAME', use_bias=True, activation=tf.nn.leaky_relu)
+            dec6up = tf.layers.conv2d_transpose(dec5conv, filters=32, kernel_size=2, strides=2, padding='same', name='dec6up')
 
             decoded = tf.layers.conv2d(dec6up, filters=4, kernel_size=(3, 3), strides=(1, 1), name='decoded',
                                         padding='SAME', use_bias=True, activation=tf.nn.leaky_relu)
