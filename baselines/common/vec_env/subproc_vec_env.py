@@ -18,6 +18,8 @@ def worker(remote, parent_remote, env_fn_wrapper, render=False):
         elif cmd == 'reset':
             ob = env.reset()
             remote.send(ob)
+        elif cmd == 'report':
+            env.report(data)
         elif cmd == 'reset_task':
             ob = env.reset_task()
             remote.send(ob)
@@ -63,7 +65,6 @@ class SubprocVecEnv(VecEnv):
         self.remotes[0].send(('get_spaces', None))
         self.action_space, self.observation_space = self.remotes[0].recv()
 
-
     def step(self, actions):
         for remote, action in zip(self.remotes, actions):
             remote.send(('step', action))
@@ -75,6 +76,9 @@ class SubprocVecEnv(VecEnv):
         for remote in self.remotes:
             remote.send(('reset', None))
         return np.stack([remote.recv() for remote in self.remotes])
+
+    def report(self, idx, data):
+        self.remotes[idx].send(('report', data))
 
     def reset_task(self):
         for remote in self.remotes:

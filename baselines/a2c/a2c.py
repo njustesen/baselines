@@ -148,6 +148,10 @@ class Runner(object):
                 rewards = discount_with_dones(rewards+[value], dones+[0], self.gamma)[:-1]
             else:
                 rewards = discount_with_dones(rewards, dones, self.gamma)
+                episode_values = mb_values[:, n]
+                episode_rewards = mb_rewards[:, n]
+                mean_value_error = np.absolute(np.subtract(episode_values, episode_rewards))
+                self.env.report(mean_value_error)
             mb_rewards[n] = rewards
         mb_rewards = mb_rewards.flatten()
         mb_actions = mb_actions.flatten()
